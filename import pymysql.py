@@ -6,7 +6,7 @@ from tkinter import ttk, messagebox
 def connect_to_db():
     try:
         conn = pymysql.connect(
-            host='localhost',
+            host='210.94.220.228',
             user='root',
             password='dongguk01',
             database='cosmeticsdb',
