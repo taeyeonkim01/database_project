@@ -1,17 +1,6 @@
 import pymysql
 import tkinter as tk
 from tkinter import ttk, messagebox
-import logging
-
-# 로그 설정
-logging.basicConfig(
-    filename="debug.log",  # 디버깅 로그 파일 이름
-    level=logging.DEBUG,  # 로그 레벨: DEBUG
-    format="%(asctime)s - %(levelname)s - %(message)s"
-)
-
-# 로그인 상태 플래그
-is_logged_in = False  # 기본값: 로그인되지 않은 상태
 
 # 데이터베이스 연결 함수
 def connect_to_db():
@@ -28,177 +17,151 @@ def connect_to_db():
         messagebox.showerror("Database Error", f"Error connecting to database: {e}")
         return None
 
-# 로그인 함수
-def login_user():
-    global is_logged_in
-    email = email_entry.get()
-    password = password_entry.get()
-
-    # 디버깅 메시지
-    print(f"DEBUG (login_user): Before login attempt, is_logged_in = {is_logged_in}", flush=True)
-    logging.debug(f"DEBUG (login_user): Before login attempt, is_logged_in = {is_logged_in}")
-
+# 카테고리, 성분 타입, 성분 이름을 데이터베이스에서 가져오는 함수
+def fetch_filter_options():
     conn = connect_to_db()
-    if not conn:
-        return
-    cursor = conn.cursor(pymysql.cursors.DictCursor)
+    if conn is None:
+        return [], [], []
 
     try:
-        query = "SELECT * FROM Users WHERE email = %s AND password = %s"
-        cursor.execute(query, (email, password))
-        result = cursor.fetchone()
+        with conn.cursor() as cursor:
+            # 카테고리 가져오기
+            cursor.execute("SELECT name FROM Categories")
+            categories = [row[0] for row in cursor.fetchall()]
 
-        if result:
-            is_logged_in = True
-            print(f"DEBUG (login_user): Login successful, is_logged_in = {is_logged_in}", flush=True)
-            logging.debug(f"DEBUG (login_user): Login successful, is_logged_in = {is_logged_in}")
-            messagebox.showinfo("Success", f"로그인 성공! 환영합니다, {result['name']}님!")
-        else:
-            is_logged_in = False
-            print(f"DEBUG (login_user): Login failed, is_logged_in = {is_logged_in}", flush=True)
-            logging.debug(f"DEBUG (login_user): Login failed, is_logged_in = {is_logged_in}")
-            messagebox.showerror("Login Error", "이메일 또는 비밀번호가 올바르지 않습니다.")
+            # 성분 타입 가져오기
+            cursor.execute("SELECT name FROM Ingredient_Types")
+            ingredient_types = [row[0] for row in cursor.fetchall()]
 
-    except pymysql.MySQLError as e:
-        messagebox.showerror("Database Error", f"Error during login: {e}")
-    finally:
-        cursor.close()
-        conn.close()
+            # 성분 이름 가져오기
+            cursor.execute("SELECT name FROM Ingredients")
+            ingredients = [row[0] for row in cursor.fetchall()]
 
-# 검색 기능
-def search_products():
-    global is_logged_in
-    print(f"DEBUG (search_products): is_logged_in = {is_logged_in}", flush=True)
-    logging.debug(f"DEBUG (search_products): is_logged_in = {is_logged_in}")
-
-    if not is_logged_in:  # 로그인 상태 확인
-        messagebox.showerror("Access Denied", "로그인 후 검색 기능을 사용할 수 있습니다.")
-        return
-
-    keyword = search_entry.get()
-    conn = connect_to_db()
-    if not conn:
-        return
-    cursor = conn.cursor(pymysql.cursors.DictCursor)
-    
-    try:
-        query = """
-        SELECT name, brand, category, price
-        FROM Products
-        WHERE name LIKE %s OR brand LIKE %s
-        """
-        cursor.execute(query, (f"%{keyword}%", f"%{keyword}%"))
-        results = cursor.fetchall()
-
-        # 기존 테이블 데이터 삭제
-        for item in result_table.get_children():
-            result_table.delete(item)
-
-        # 결과를 테이블에 추가
-        for row in results:
-            result_table.insert("", "end", values=(row["name"], row["brand"], row["category"], row["price"]))
-        
-    except pymysql.MySQLError as e:
-        messagebox.showerror("Database Error", f"Error fetching data: {e}")
-    finally:
-        cursor.close()
-        conn.close()
-
-# 회원가입 창 열기
-def open_register_window():
-    register_window = tk.Toplevel(root)
-    register_window.title("Register")
-    register_window.geometry("400x300")
-
-    name_label = tk.Label(register_window, text="Name:")
-    name_label.pack(pady=5)
-    name_entry = tk.Entry(register_window, width=40)
-    name_entry.pack(pady=5)
-
-    email_label = tk.Label(register_window, text="Email:")
-    email_label.pack(pady=5)
-    email_entry = tk.Entry(register_window, width=40)
-    email_entry.pack(pady=5)
-
-    password_label = tk.Label(register_window, text="Password:")
-    password_label.pack(pady=5)
-    password_entry = tk.Entry(register_window, show="*", width=40)
-    password_entry.pack(pady=5)
-
-    def register_user():
-        name = name_entry.get()
-        email = email_entry.get()
-        password = password_entry.get()
-
-        if not name or not email or not password:
-            messagebox.showerror("Input Error", "모든 필드를 입력하세요!")
-            return
-
-        conn = connect_to_db()
-        if not conn:
-            return
-        cursor = conn.cursor()
-
-        try:
-            query_check = "SELECT COUNT(*) FROM Users WHERE email = %s"
-            cursor.execute(query_check, (email,))
-            result = cursor.fetchone()
-            if result[0] > 0:
-                messagebox.showerror("Duplicate Error", "이미 존재하는 이메일입니다. 다른 이메일을 사용하세요.")
-                return
-
-            query_insert = "INSERT INTO Users (name, email, password) VALUES (%s, %s, %s)"
-            cursor.execute(query_insert, (name, email, password))
-            conn.commit()
-            messagebox.showinfo("Success", "사용자 가입이 완료되었습니다!")
-            name_entry.delete(0, tk.END)
-            email_entry.delete(0, tk.END)
-            password_entry.delete(0, tk.END)
-        except pymysql.MySQLError as e:
-            messagebox.showerror("Database Error", f"Error registering user: {e}")
-        finally:
-            cursor.close()
             conn.close()
+            return categories, ingredient_types, ingredients
+    except pymysql.MySQLError as e:
+        messagebox.showerror("Query Error", f"Error executing query: {e}")
+        return [], [], []
 
-    register_button = tk.Button(register_window, text="Register", command=register_user)
-    register_button.pack(pady=20)
+# 검색 함수
+def search_products():
+    search_term = entry_search.get()
+    filters = {
+        'category': category_filter_var.get(),
+        'ingredient_type': ingredient_type_filter_var.get(),
+        'ingredient_name': ingredient_name_filter_var.get()
+    }
 
-# Tkinter 창 생성
+    # 검색어가 비어있으면 경고 메시지 표시
+    if not search_term:
+        messagebox.showwarning("Input Error", "검색어를 입력해주세요.")
+        return
+
+    conn = connect_to_db()
+    if conn is None:
+        return
+
+    # 기본 검색 쿼리
+    query = """
+    SELECT p.name AS product_name, b.name AS brand_name, c.name AS category_name, 
+           it.name AS ingredient_type, i.name AS ingredient_name 
+    FROM Products p
+    LEFT JOIN Brands b ON p.brand_id = b.brand_id
+    LEFT JOIN Categories c ON p.category_id = c.category_id
+    LEFT JOIN Product_Ingredients pi ON p.product_id = pi.product_id
+    LEFT JOIN Ingredients i ON pi.ingredient_id = i.ingredient_id
+    LEFT JOIN Ingredient_Types it ON i.type_id = it.type_id
+    WHERE p.name LIKE %s OR b.name LIKE %s
+    """
+
+    conditions = [f"%{search_term}%", f"%{search_term}%"]
+
+    # 필터가 설정되었으면 쿼리에 필터 조건 추가
+    if filters['category'] and filters['category'] != "선택안함":
+        query += " OR c.name LIKE %s"
+        conditions.append(f"%{filters['category']}%")
+    if filters['ingredient_type'] and filters['ingredient_type'] != "선택안함":
+        query += " OR it.name LIKE %s"
+        conditions.append(f"%{filters['ingredient_type']}%")
+    if filters['ingredient_name'] and filters['ingredient_name'] != "선택안함":
+        query += " OR i.name LIKE %s"
+        conditions.append(f"%{filters['ingredient_name']}%")
+
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(query, tuple(conditions))
+            results = cursor.fetchall()
+
+            # 검색 결과 테이블 갱신
+            for row in results:
+                treeview_results.insert("", "end", values=row)
+
+            conn.close()
+    except pymysql.MySQLError as e:
+        messagebox.showerror("Query Error", f"Error executing query: {e}")
+
+# UI 설정
 root = tk.Tk()
-root.title("Cosmetics Platform")
-root.geometry("1000x800")
+root.title("Cosmetic Product Search")
 
 # 검색 입력 필드
-search_label = tk.Label(root, text="Search Products:")
-search_label.pack(pady=10)
-search_entry = tk.Entry(root, width=50)
-search_entry.pack(pady=10)
+label_search = tk.Label(root, text="검색어 입력:")
+label_search.pack(pady=10)
 
-search_button = tk.Button(root, text="Search", command=search_products)
-search_button.pack(pady=10)
+entry_search = tk.Entry(root, width=50)
+entry_search.pack(pady=5)
 
-result_table = ttk.Treeview(root, columns=("Name", "Brand", "Category", "Price"), show="headings")
-result_table.heading("Name", text="Name")
-result_table.heading("Brand", text="Brand")
-result_table.heading("Category", text="Category")
-result_table.heading("Price", text="Price")
-result_table.pack(pady=20, fill=tk.BOTH, expand=True)
+# 필터 설정 (드롭다운 메뉴로 설정)
+frame_filters = tk.Frame(root)
+frame_filters.pack(pady=10)
 
-# 로그인 입력 필드
-email_label = tk.Label(root, text="Email:")
-email_label.pack(pady=5)
-email_entry = tk.Entry(root, width=40)
-email_entry.pack(pady=5)
+category_filter_var = tk.StringVar()
+ingredient_type_filter_var = tk.StringVar()
+ingredient_name_filter_var = tk.StringVar()
 
-password_label = tk.Label(root, text="Password:")
-password_label.pack(pady=5)
-password_entry = tk.Entry(root, show="*", width=40)
-password_entry.pack(pady=5)
+# 기본값은 '선택안함'으로 설정
+category_filter_var.set("선택안함")
+ingredient_type_filter_var.set("선택안함")
+ingredient_name_filter_var.set("선택안함")
 
-login_button = tk.Button(root, text="Login", command=login_user)
-login_button.pack(pady=10)
+# 카테고리 드롭다운 메뉴
+category_filter_label = tk.Label(frame_filters, text="카테고리 필터:")
+category_filter_label.grid(row=0, column=0, padx=5)
+category_filter_dropdown = ttk.Combobox(frame_filters, textvariable=category_filter_var, width=20)
+category_filter_dropdown.grid(row=0, column=1, padx=5)
 
-register_button = tk.Button(root, text="Register", command=open_register_window)
-register_button.pack(pady=10)
+# 성분 타입 드롭다운 메뉴
+ingredient_type_filter_label = tk.Label(frame_filters, text="성분 타입 필터:")
+ingredient_type_filter_label.grid(row=1, column=0, padx=5)
+ingredient_type_filter_dropdown = ttk.Combobox(frame_filters, textvariable=ingredient_type_filter_var, width=20)
+ingredient_type_filter_dropdown.grid(row=1, column=1, padx=5)
 
+# 성분 이름 드롭다운 메뉴
+ingredient_name_filter_label = tk.Label(frame_filters, text="성분 이름 필터:")
+ingredient_name_filter_label.grid(row=2, column=0, padx=5)
+ingredient_name_filter_dropdown = ttk.Combobox(frame_filters, textvariable=ingredient_name_filter_var, width=20)
+ingredient_name_filter_dropdown.grid(row=2, column=1, padx=5)
+
+# 검색 버튼
+button_search = tk.Button(root, text="검색", command=search_products)
+button_search.pack(pady=10)
+
+# 결과 표시용 Treeview
+columns = ("product_name", "brand_name", "category_name", "ingredient_type", "ingredient_name")
+treeview_results = ttk.Treeview(root, columns=columns, show="headings", height=10)
+treeview_results.pack(pady=10)
+
+# 각 컬럼의 헤더 설정
+for col in columns:
+    treeview_results.heading(col, text=col.replace("_", " ").title())
+
+# 드롭다운 메뉴 옵션을 설정하는 함수 호출
+categories, ingredient_types, ingredients = fetch_filter_options()
+
+# 드롭다운에 옵션 넣기
+category_filter_dropdown['values'] = ["선택안함"] + categories
+ingredient_type_filter_dropdown['values'] = ["선택안함"] + ingredient_types
+ingredient_name_filter_dropdown['values'] = ["선택안함"] + ingredients
+
+# 실행
 root.mainloop()
