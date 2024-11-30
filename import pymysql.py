@@ -52,7 +52,7 @@ def search_products():
     # 검색 모드에 따라 쿼리 변경
     if search_mode.get() == "default":  # 기본 모드 (브랜드 및 제품 이름 검색)
         query = """
-        SELECT p.product_id, p.name AS product_name, b.name AS brand_name, c.name AS category_name, p.price
+        SELECT p.name AS product_name, b.name AS brand_name, c.name AS category_name, p.price
         FROM Products p
         LEFT JOIN Brands b ON p.brand_id = b.brand_id
         LEFT JOIN Categories c ON p.category_id = c.category_id
@@ -61,7 +61,7 @@ def search_products():
         conditions.append(f"%{search_term}%")
     elif search_mode.get() == "category":  # 카테고리 검색 모드
         query = """
-        SELECT p.product_id, p.name AS product_name, b.name AS brand_name, c.name AS category_name, p.price
+        SELECT p.name AS product_name, b.name AS brand_name, c.name AS category_name, p.price
         FROM Products p
         LEFT JOIN Brands b ON p.brand_id = b.brand_id
         LEFT JOIN Categories c ON p.category_id = c.category_id
@@ -69,7 +69,7 @@ def search_products():
         """
     elif search_mode.get() == "ingredient":  # 성분 검색 모드
         query = """
-        SELECT p.product_id, p.name AS product_name, b.name AS brand_name, c.name AS category_name, p.price
+        SELECT p.name AS product_name, b.name AS brand_name, c.name AS category_name, p.price
         FROM Products p
         LEFT JOIN Brands b ON p.brand_id = b.brand_id
         LEFT JOIN Categories c ON p.category_id = c.category_id
@@ -88,7 +88,8 @@ def search_products():
 
             # 검색 결과 테이블 갱신
             for row in results:
-                treeview_results.insert("", "end", values=row)  # 순서대로 삽입
+                # row는 (product_name, brand_name, category_name, price)
+                treeview_results.insert("", "end", values=row)
 
             conn.close()
     except pymysql.MySQLError as e:
@@ -206,44 +207,6 @@ def signup(name, email, password, password_confirm):
     finally:
         conn.close()
 
-# 더블클릭 시 성분을 보여주는 함수
-def show_ingredients(product_id):
-    conn = connect_to_db()
-    if conn is None:
-        return
-    
-    query = """
-    SELECT i.name AS ingredient_name, it.name AS ingredient_type, i.description AS ingredient_description
-    FROM Product_Ingredients pi
-    JOIN Ingredients i ON pi.ingredient_id = i.ingredient_id
-    JOIN Ingredient_Types it ON i.type_id = it.type_id
-    WHERE pi.product_id = %s
-    """
-    
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute(query, (product_id,))
-            ingredients = cursor.fetchall()
-            
-            if not ingredients:
-                messagebox.showinfo("성분 정보", "이 제품에는 성분 정보가 없습니다.")
-                return
-            
-            # 성분 정보 표시 창
-            ingredients_window = tk.Toplevel(root)
-            ingredients_window.title("성분 정보")
-            ingredients_window.geometry("400x300")
-            
-            # 성분 목록 표시
-            for idx, (ingredient_name, ingredient_type, ingredient_description) in enumerate(ingredients):
-                tk.Label(ingredients_window, text=f"성분: {ingredient_name} ({ingredient_type})").pack(pady=5)
-                tk.Label(ingredients_window, text=f"설명: {ingredient_description}").pack(pady=5)
-
-    except pymysql.MySQLError as e:
-        messagebox.showerror("Query Error", f"Error fetching ingredient data: {e}")
-    finally:
-        conn.close()
-
 # 검색 입력 필드
 label_search = tk.Label(root, text="검색어 입력:")
 label_search.pack(pady=10)
@@ -291,11 +254,60 @@ treeview_results.heading("price", text="가격")
 def on_item_double_click(event):
     selected_item = treeview_results.selection()
     if selected_item:
-        product_id = treeview_results.item(selected_item)["values"][0]
-        show_ingredients(product_id)
+        product_name = treeview_results.item(selected_item)["values"][0]
+        show_ingredients(product_name)
 
 # 더블클릭 이벤트 바인딩
 treeview_results.bind("<Double-1>", on_item_double_click)
+
+# 성분 상세 정보를 보여주는 함수
+def show_ingredients(product_name):
+    conn = connect_to_db()
+    if conn is None:
+        return
+
+    query = """
+    SELECT i.name AS ingredient_name, it.name AS ingredient_type, i.description AS ingredient_description
+    FROM Product_Ingredients pi
+    JOIN Products p ON pi.product_id = p.product_id
+    JOIN Ingredients i ON pi.ingredient_id = i.ingredient_id
+    JOIN Ingredient_Types it ON i.type_id = it.type_id
+    WHERE p.name = %s
+    """
+
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(query, (product_name,))
+            ingredients = cursor.fetchall()
+
+            if not ingredients:
+                messagebox.showinfo("성분 정보", "이 제품에는 성분 정보가 없습니다.")
+                return
+
+            # 성분 정보 표시 창
+            ingredients_window = tk.Toplevel(root)
+            ingredients_window.title("성분 정보")
+            ingredients_window.geometry("600x400")  # 창 크기 확장
+
+            # 성분 목록 표시
+            for ingredient_name, ingredient_type, ingredient_description in ingredients:
+                tk.Label(
+                    ingredients_window,
+                    text=f"성분: {ingredient_name} ({ingredient_type})",
+                    font=("Arial", 12, "bold")
+                ).pack(pady=5)
+                tk.Label(
+                    ingredients_window,
+                    text=f"설명: {ingredient_description}",
+                    font=("Arial", 10),
+                    wraplength=500,
+                    justify="left"
+                ).pack(pady=5)
+
+    except pymysql.MySQLError as e:
+        messagebox.showerror("Query Error", f"Error fetching ingredient data: {e}")
+    finally:
+        conn.close()
 
 # 실행
 root.mainloop()
