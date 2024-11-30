@@ -9,9 +9,14 @@ root.geometry("1000x800")  # 기본 창 크기 설정
 
 # 로그인 상태 변수
 is_logged_in = tk.BooleanVar(value=False)  # 기본값: 로그인 상태 아님
+email_logged_in = None  # 로그인된 사용자의 이메일 저장
+user_name_logged_in = None  # 로그인된 사용자의 이름 저장
 
 # 검색 모드 변수 (기본값: 브랜드/제품 검색)
 search_mode = tk.StringVar(value="default")  # Tk 생성 후 초기화해야 함
+
+# 성분 제외 체크박스 상태 변수
+exclude_ingredient = tk.BooleanVar(value=False)  # 기본값: 제외 안 함
 
 # 데이터베이스 연결 함수
 def connect_to_db():
@@ -35,6 +40,7 @@ def search_products():
         return
 
     search_term = entry_search.get()
+    is_exclude = exclude_ingredient.get()
 
     # 검색어가 비어있으면 경고 메시지 표시
     if not search_term:
@@ -68,16 +74,32 @@ def search_products():
         WHERE c.name LIKE %s
         """
     elif search_mode.get() == "ingredient":  # 성분 검색 모드
-        query = """
-        SELECT p.name AS product_name, b.name AS brand_name, c.name AS category_name, p.price
-        FROM Products p
-        LEFT JOIN Brands b ON p.brand_id = b.brand_id
-        LEFT JOIN Categories c ON p.category_id = c.category_id
-        LEFT JOIN Product_Ingredients pi ON p.product_id = pi.product_id
-        LEFT JOIN Ingredients i ON pi.ingredient_id = i.ingredient_id
-        WHERE i.name LIKE %s
-        """
-    
+        if is_exclude:  # 성분 제외 검색
+            query = """
+            SELECT DISTINCT p.name AS product_name, b.name AS brand_name, c.name AS category_name, p.price
+            FROM Products p
+            LEFT JOIN Brands b ON p.brand_id = b.brand_id
+            LEFT JOIN Categories c ON p.category_id = c.category_id
+            LEFT JOIN Product_Ingredients pi ON p.product_id = pi.product_id
+            LEFT JOIN Ingredients i ON pi.ingredient_id = i.ingredient_id
+            WHERE p.product_id NOT IN (
+                SELECT pi.product_id
+                FROM Product_Ingredients pi
+                JOIN Ingredients i ON pi.ingredient_id = i.ingredient_id
+                WHERE i.name LIKE %s
+            )
+            """
+        else:  # 성분 포함 검색
+            query = """
+            SELECT DISTINCT p.name AS product_name, b.name AS brand_name, c.name AS category_name, p.price
+            FROM Products p
+            LEFT JOIN Brands b ON p.brand_id = b.brand_id
+            LEFT JOIN Categories c ON p.category_id = c.category_id
+            LEFT JOIN Product_Ingredients pi ON p.product_id = pi.product_id
+            LEFT JOIN Ingredients i ON pi.ingredient_id = i.ingredient_id
+            WHERE i.name LIKE %s
+            """
+
     try:
         with conn.cursor() as cursor:
             cursor.execute(query, tuple(conditions))
@@ -88,7 +110,6 @@ def search_products():
 
             # 검색 결과 테이블 갱신
             for row in results:
-                # row는 (product_name, brand_name, category_name, price)
                 treeview_results.insert("", "end", values=row)
 
             conn.close()
@@ -102,10 +123,13 @@ def set_search_mode(mode):
     entry_search.delete(0, tk.END)
     if mode == "default":
         label_mode.config(text="모드: 기본 (브랜드/제품 검색)")
+        checkbox_exclude.grid_remove()  # 성분 제외 체크박스 숨김
     elif mode == "category":
         label_mode.config(text="모드: 카테고리 검색")
+        checkbox_exclude.grid_remove()  # 성분 제외 체크박스 숨김
     elif mode == "ingredient":
         label_mode.config(text="모드: 성분 검색")
+        checkbox_exclude.grid()  # 성분 제외 체크박스 표시
 
 # 로그인 창 생성 함수
 def open_login_window():
@@ -130,6 +154,7 @@ def open_login_window():
 
 # 로그인 함수
 def login(email, password, window):
+    global email_logged_in, user_name_logged_in
     if not email or not password:
         messagebox.showwarning("로그인 실패", "이메일과 비밀번호를 입력해주세요.")
         return
@@ -140,20 +165,29 @@ def login(email, password, window):
 
     try:
         with conn.cursor() as cursor:
-            # Users 테이블에서 사용자 확인
-            query = "SELECT * FROM Users WHERE email = %s AND password = %s"
+            query = "SELECT user_id, name FROM Users WHERE email = %s AND password = %s"
             cursor.execute(query, (email, password))
             result = cursor.fetchone()
             if result:
-                is_logged_in.set(True)  # 로그인 상태 설정
-                window.destroy()  # 로그인 창 닫기
-                messagebox.showinfo("로그인 성공", "로그인에 성공했습니다!")
+                is_logged_in.set(True)
+                email_logged_in = email  # 로그인된 이메일 저장
+                user_name_logged_in = result[1]  # 로그인된 유저 이름 저장
+                window.destroy()
+                update_login_button()  # 로그인 버튼 업데이트
+                messagebox.showinfo("로그인 성공", f"{user_name_logged_in}님, 환영합니다!")
             else:
                 messagebox.showerror("로그인 실패", "이메일 또는 비밀번호가 잘못되었습니다.")
     except pymysql.MySQLError as e:
         messagebox.showerror("Database Error", f"로그인 중 오류가 발생했습니다: {e}")
     finally:
         conn.close()
+
+# 로그인 버튼 업데이트 함수
+def update_login_button():
+    if is_logged_in.get():
+        button_login.config(text=f"{user_name_logged_in}님", state="disabled")  # 로그인 버튼을 유저 이름으로 대체
+    else:
+        button_login.config(text="로그인", state="normal")  # 기본 로그인 버튼으로 복구
 
 # 회원가입 창 생성 함수
 def open_signup_window():
@@ -207,12 +241,16 @@ def signup(name, email, password, password_confirm):
     finally:
         conn.close()
 
-# 검색 입력 필드
-label_search = tk.Label(root, text="검색어 입력:")
-label_search.pack(pady=10)
+# 검색 입력 필드 및 체크박스
+search_frame = tk.Frame(root)
+search_frame.pack(pady=10)
 
-entry_search = tk.Entry(root, width=70, font=("Arial", 14))  # 입력 필드 너비와 폰트 크기 조정
-entry_search.pack(pady=10)
+entry_search = tk.Entry(search_frame, width=50, font=("Arial", 14))
+entry_search.grid(row=0, column=0, padx=5)
+
+checkbox_exclude = tk.Checkbutton(search_frame, text="성분 제외", variable=exclude_ingredient)
+checkbox_exclude.grid(row=0, column=1, padx=5)
+checkbox_exclude.grid_remove()  # 기본적으로 숨김
 
 # 검색 모드 표시
 label_mode = tk.Label(root, text="모드: 기본 (브랜드/제품 검색)", font=("Arial", 12))
@@ -233,7 +271,7 @@ button_ingredient.grid(row=0, column=2, padx=5)
 
 # 로그인 버튼
 button_login = tk.Button(root, text="로그인", command=open_login_window)
-button_login.place(x=900, y=10)  # 오른쪽 위에 위치
+button_login.place(x=900, y=10)
 
 # 검색 버튼
 button_search = tk.Button(root, text="검색", command=search_products, font=("Arial", 12))
@@ -250,64 +288,8 @@ treeview_results.heading("brand_name", text="브랜드")
 treeview_results.heading("category_name", text="카테고리")
 treeview_results.heading("price", text="가격")
 
-# 더블클릭 이벤트 처리
-def on_item_double_click(event):
-    selected_item = treeview_results.selection()
-    if selected_item:
-        product_name = treeview_results.item(selected_item)["values"][0]
-        show_ingredients(product_name)
-
-# 더블클릭 이벤트 바인딩
-treeview_results.bind("<Double-1>", on_item_double_click)
-
-# 성분 상세 정보를 보여주는 함수
-def show_ingredients(product_name):
-    conn = connect_to_db()
-    if conn is None:
-        return
-
-    query = """
-    SELECT i.name AS ingredient_name, it.name AS ingredient_type, i.description AS ingredient_description
-    FROM Product_Ingredients pi
-    JOIN Products p ON pi.product_id = p.product_id
-    JOIN Ingredients i ON pi.ingredient_id = i.ingredient_id
-    JOIN Ingredient_Types it ON i.type_id = it.type_id
-    WHERE p.name = %s
-    """
-
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute(query, (product_name,))
-            ingredients = cursor.fetchall()
-
-            if not ingredients:
-                messagebox.showinfo("성분 정보", "이 제품에는 성분 정보가 없습니다.")
-                return
-
-            # 성분 정보 표시 창
-            ingredients_window = tk.Toplevel(root)
-            ingredients_window.title("성분 정보")
-            ingredients_window.geometry("600x400")  # 창 크기 확장
-
-            # 성분 목록 표시
-            for ingredient_name, ingredient_type, ingredient_description in ingredients:
-                tk.Label(
-                    ingredients_window,
-                    text=f"성분: {ingredient_name} ({ingredient_type})",
-                    font=("Arial", 12, "bold")
-                ).pack(pady=5)
-                tk.Label(
-                    ingredients_window,
-                    text=f"설명: {ingredient_description}",
-                    font=("Arial", 10),
-                    wraplength=500,
-                    justify="left"
-                ).pack(pady=5)
-
-    except pymysql.MySQLError as e:
-        messagebox.showerror("Query Error", f"Error fetching ingredient data: {e}")
-    finally:
-        conn.close()
+# 프로그램 실행 시 초기화
+update_login_button()
 
 # 실행
 root.mainloop()
