@@ -7,6 +7,9 @@ root = tk.Tk()  # Tk 루트 창을 먼저 생성
 root.title("Cosmetic Product Search")
 root.geometry("1000x800")  # 기본 창 크기 설정
 
+# 로그인 상태 변수
+is_logged_in = tk.BooleanVar(value=False)  # 기본값: 로그인 상태 아님
+
 # 검색 모드 변수 (기본값: 브랜드/제품 검색)
 search_mode = tk.StringVar(value="default")  # Tk 생성 후 초기화해야 함
 
@@ -27,6 +30,10 @@ def connect_to_db():
 
 # 검색 함수
 def search_products():
+    if not is_logged_in.get():  # 로그인하지 않았으면 검색 불가
+        messagebox.showwarning("로그인 필요", "검색 기능을 이용하려면 로그인이 필요합니다.")
+        return
+
     search_term = entry_search.get()
 
     # 검색어가 비어있으면 경고 메시지 표시
@@ -111,17 +118,37 @@ def open_login_window():
     entry_password.pack(pady=5)
 
     # 로그인 버튼
-    tk.Button(login_window, text="로그인", command=lambda: login(entry_email.get(), entry_password.get())).pack(pady=10)
+    tk.Button(login_window, text="로그인", command=lambda: login(entry_email.get(), entry_password.get(), login_window)).pack(pady=10)
 
     # 회원가입 버튼
     tk.Button(login_window, text="회원가입", command=open_signup_window).pack(pady=5)
 
-# 로그인 함수 (더미)
-def login(email, password):
-    if email and password:
-        messagebox.showinfo("로그인", "로그인 성공!")
-    else:
+# 로그인 함수
+def login(email, password, window):
+    if not email or not password:
         messagebox.showwarning("로그인 실패", "이메일과 비밀번호를 입력해주세요.")
+        return
+
+    conn = connect_to_db()
+    if conn is None:
+        return
+
+    try:
+        with conn.cursor() as cursor:
+            # Users 테이블에서 사용자 확인
+            query = "SELECT * FROM Users WHERE email = %s AND password = %s"
+            cursor.execute(query, (email, password))
+            result = cursor.fetchone()
+            if result:
+                is_logged_in.set(True)  # 로그인 상태 설정
+                window.destroy()  # 로그인 창 닫기
+                messagebox.showinfo("로그인 성공", "로그인에 성공했습니다!")
+            else:
+                messagebox.showerror("로그인 실패", "이메일 또는 비밀번호가 잘못되었습니다.")
+    except pymysql.MySQLError as e:
+        messagebox.showerror("Database Error", f"로그인 중 오류가 발생했습니다: {e}")
+    finally:
+        conn.close()
 
 # 회원가입 창 생성 함수
 def open_signup_window():
@@ -179,11 +206,11 @@ def signup(name, email, password, password_confirm):
 label_search = tk.Label(root, text="검색어 입력:")
 label_search.pack(pady=10)
 
-entry_search = tk.Entry(root, width=50)
-entry_search.pack(pady=5)
+entry_search = tk.Entry(root, width=70, font=("Arial", 14))  # 입력 필드 너비와 폰트 크기 조정
+entry_search.pack(pady=10)
 
 # 검색 모드 표시
-label_mode = tk.Label(root, text="모드: 기본 (브랜드/제품 검색)")
+label_mode = tk.Label(root, text="모드: 기본 (브랜드/제품 검색)", font=("Arial", 12))
 label_mode.pack(pady=5)
 
 # 검색 모드 버튼
@@ -204,13 +231,13 @@ button_login = tk.Button(root, text="로그인", command=open_login_window)
 button_login.place(x=900, y=10)  # 오른쪽 위에 위치
 
 # 검색 버튼
-button_search = tk.Button(root, text="검색", command=search_products)
+button_search = tk.Button(root, text="검색", command=search_products, font=("Arial", 12))
 button_search.pack(pady=10)
 
 # 결과 표시용 Treeview
 columns = ("product_name", "additional_info")
-treeview_results = ttk.Treeview(root, columns=columns, show="headings", height=10)
-treeview_results.pack(pady=10)
+treeview_results = ttk.Treeview(root, columns=columns, show="headings", height=20)
+treeview_results.pack(pady=10, expand=True, fill=tk.BOTH)
 
 # 각 컬럼의 헤더 설정
 treeview_results.heading("product_name", text="제품 이름")
@@ -218,3 +245,4 @@ treeview_results.heading("additional_info", text="추가 정보")
 
 # 실행
 root.mainloop()
+
