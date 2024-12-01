@@ -1,10 +1,10 @@
-# ui.py
-
 import tkinter as tk
 from tkinter import ttk, messagebox
 from login import login
 from search import search_products
 from filters import get_user_filters, create_filter, delete_filter
+from database import connect_to_db
+
 
 class CosmeticApp:
     def __init__(self, root):
@@ -21,7 +21,6 @@ class CosmeticApp:
         self.create_widgets()
 
     def create_widgets(self):
-        # 메인 프레임 생성 (좌측과 우측 영역을 담는 프레임)
         main_frame = tk.Frame(self.root)
         main_frame.pack(fill=tk.BOTH, expand=True)
 
@@ -33,19 +32,10 @@ class CosmeticApp:
         right_frame = tk.Frame(main_frame)
         right_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        # 로그인 영역 생성
         self.create_login_area(left_frame)
-
-        # 필터 목록 영역 생성
         self.create_filter_list(left_frame)
-
-        # 검색 영역 생성
         self.create_search_area(right_frame)
-
-        # 모드 버튼 생성
         self.create_mode_buttons(right_frame)
-
-        # 결과 테이블 생성
         self.create_results_table(right_frame)
 
     def create_login_area(self, parent):
@@ -67,18 +57,18 @@ class CosmeticApp:
         self.button_login.pack(pady=5)
 
     def add_placeholder(self, entry, placeholder, show=None):
-        """Entry 위젯에 Placeholder를 추가하는 메서드"""
         def on_focus_in(event):
             if entry.get() == placeholder:
                 entry.delete(0, tk.END)
                 entry.config(fg='black', show=show)
+
         def on_focus_out(event):
             if not entry.get():
                 entry.insert(0, placeholder)
                 entry.config(fg='grey', show='')
+
         entry.insert(0, placeholder)
         entry.config(fg='grey')
-
         entry.bind('<FocusIn>', on_focus_in)
         entry.bind('<FocusOut>', on_focus_out)
 
@@ -89,7 +79,6 @@ class CosmeticApp:
         self.listbox_filters = tk.Listbox(self.filter_frame, width=30, height=15)
         self.listbox_filters.pack(pady=5, fill=tk.BOTH, expand=True)
 
-        # 더블클릭 이벤트 바인딩 추가
         self.listbox_filters.bind('<Double-Button-1>', self.handle_filter_double_click)
 
         button_frame = tk.Frame(self.filter_frame)
@@ -101,8 +90,15 @@ class CosmeticApp:
         self.button_delete_filter = tk.Button(button_frame, text="필터 삭제", command=self.handle_delete_filter)
         self.button_delete_filter.grid(row=0, column=1, padx=5)
 
-        # 초기에는 필터 위젯 비활성화
         self.toggle_filter_widgets(state='disabled')
+
+    def toggle_filter_widgets(self, state='normal'):
+        """
+        사용자 필터 관련 위젯 활성화/비활성화
+        """
+        widgets = [self.listbox_filters, self.button_create_filter, self.button_delete_filter]
+        for widget in widgets:
+            widget.config(state=state)
 
     def create_search_area(self, parent):
         search_frame = tk.Frame(parent)
@@ -113,7 +109,6 @@ class CosmeticApp:
 
         self.checkbox_exclude = tk.Checkbutton(search_frame, text="성분 제외", variable=self.exclude_ingredient)
         self.checkbox_exclude.grid(row=0, column=1, padx=5)
-        self.checkbox_exclude.grid_remove()  # 기본적으로 체크박스를 숨김
 
         btn_search = tk.Button(search_frame, text="검색", command=self.handle_search, font=("Arial", 12))
         btn_search.grid(row=0, column=2, padx=5)
@@ -143,22 +138,60 @@ class CosmeticApp:
             self.treeview_results.heading(col, text=col.replace("_", " ").capitalize())
             self.treeview_results.column(col, width=100, anchor='center')
 
-    def toggle_filter_widgets(self, state='normal'):
-        widgets = [self.listbox_filters, self.button_create_filter, self.button_delete_filter]
-        for widget in widgets:
-            widget.config(state=state)
+        self.treeview_results.bind("<Double-1>", self.handle_result_double_click)
 
-    def set_search_mode(self, mode):
-        self.search_mode.set(mode)
-        if mode == "default":
-            self.label_mode.config(text="모드: 기본 (브랜드/제품 검색)")
-            self.checkbox_exclude.grid_remove()
-        elif mode == "category":
-            self.label_mode.config(text="모드: 카테고리 검색")
-            self.checkbox_exclude.grid_remove()
-        elif mode == "ingredient":
-            self.label_mode.config(text="모드: 성분 검색")
-            self.checkbox_exclude.grid()
+    def handle_result_double_click(self, event):
+        """
+        검색 결과 테이블에서 제품 행을 더블클릭하면 해당 제품의 성분 정보를 표시.
+        """
+        selected_item = self.treeview_results.selection()
+        if not selected_item:
+            return
+
+        product_name = self.treeview_results.item(selected_item, "values")[0]
+
+        try:
+            conn = connect_to_db()
+            if conn is None:
+                raise Exception("데이터베이스 연결 실패")
+
+            with conn.cursor() as cursor:
+                query = """
+                SELECT i.name AS ingredient_name, i.description
+                FROM Products p
+                JOIN Product_Ingredients pi ON p.product_id = pi.product_id
+                JOIN Ingredients i ON pi.ingredient_id = i.ingredient_id
+                WHERE p.name = %s
+                """
+                cursor.execute(query, (product_name,))
+                results = cursor.fetchall()
+
+            if not results:
+                messagebox.showinfo("성분 정보", f"'{product_name}' 제품에 대한 성분 정보가 없습니다.")
+                return
+
+            ingredients_window = tk.Toplevel(self.root)
+            ingredients_window.title(f"{product_name}의 성분 정보")
+            ingredients_window.geometry("800x600")
+
+            tk.Label(ingredients_window, text=f"{product_name}의 성분 정보", font=("Arial", 14, "bold")).pack(pady=10)
+
+            treeview_ingredients = ttk.Treeview(ingredients_window, columns=("ingredient_name", "description"), show="headings", height=15)
+            treeview_ingredients.pack(pady=10, fill=tk.BOTH, expand=True)
+
+            treeview_ingredients.heading("ingredient_name", text="성분 이름")
+            treeview_ingredients.heading("description", text="성분 설명")
+
+            for ingredient in results:
+                treeview_ingredients.insert("", "end", values=ingredient)
+
+            tk.Button(ingredients_window, text="닫기", command=ingredients_window.destroy).pack(pady=10)
+
+        except Exception as e:
+            messagebox.showerror("오류", f"성분 정보를 가져오는 중 오류가 발생했습니다: {e}")
+        finally:
+            if conn:
+                conn.close()
 
     def handle_search(self):
         if not self.is_logged_in.get():
@@ -170,21 +203,15 @@ class CosmeticApp:
             messagebox.showwarning("입력 오류", "검색어를 입력해주세요.")
             return
 
-        # 선택된 필터 가져오기
-        selected_filter = None
-        if self.listbox_filters.curselection():
-            index = self.listbox_filters.curselection()[0]
-            selected_filter = self.listbox_filters.get(index)
-
         results = search_products(
             search_term,
             self.search_mode.get(),
             self.exclude_ingredient.get(),
             user_id=self.user_id,
-            filter_name=selected_filter
+            filter_name=None
         )
         self.display_results(results)
-    
+
     def handle_filter_double_click(self, event):
         if not self.is_logged_in.get():
             messagebox.showwarning("로그인 필요", "필터를 사용하려면 로그인이 필요합니다.")
@@ -195,7 +222,6 @@ class CosmeticApp:
         index = self.listbox_filters.curselection()[0]
         filter_name = self.listbox_filters.get(index)
 
-    # 검색어 없이 필터만 사용하여 검색 수행
         results = search_products(
             search_term=None,
             search_mode="filter_only",
@@ -204,10 +230,7 @@ class CosmeticApp:
             filter_name=filter_name
         )
         self.display_results(results)
-
-    # 필터 선택 해제하여 이후 검색에 영향을 주지 않도록 함
         self.listbox_filters.selection_clear(0, tk.END)
-
 
     def display_results(self, results):
         self.treeview_results.delete(*self.treeview_results.get_children())
@@ -227,12 +250,9 @@ class CosmeticApp:
             self.user_name = user_info['name']
             self.user_id = user_info['user_id']
             self.label_welcome.config(text=f"환영합니다, {self.user_name}님!")
-
-            # 로그인 완료 후 이메일과 비밀번호 입력 필드 제거
             self.entry_email.pack_forget()
             self.entry_password.pack_forget()
             self.button_login.pack_forget()
-
             self.toggle_filter_widgets(state='normal')
             self.refresh_filter_list()
         else:
@@ -285,3 +305,11 @@ class CosmeticApp:
                 self.refresh_filter_list()
             else:
                 messagebox.showerror("필터 삭제 실패", "필터 삭제에 실패하였습니다.")
+
+    def set_search_mode(self, mode):
+        self.search_mode.set(mode)
+        self.label_mode.config(text=f"모드: {mode.capitalize()} 검색")
+        if mode == "ingredient":
+            self.checkbox_exclude.grid()
+        else:
+            self.checkbox_exclude.grid_remove()
