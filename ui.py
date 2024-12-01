@@ -184,7 +184,7 @@ class CosmeticApp:
             filter_name=selected_filter
         )
         self.display_results(results)
-
+    
     def handle_filter_double_click(self, event):
         if not self.is_logged_in.get():
             messagebox.showwarning("로그인 필요", "필터를 사용하려면 로그인이 필요합니다.")
@@ -195,7 +195,7 @@ class CosmeticApp:
         index = self.listbox_filters.curselection()[0]
         filter_name = self.listbox_filters.get(index)
 
-        # 검색어 없이 필터만 사용하여 검색 수행
+    # 검색어 없이 필터만 사용하여 검색 수행
         results = search_products(
             search_term=None,
             search_mode="filter_only",
@@ -204,6 +204,10 @@ class CosmeticApp:
             filter_name=filter_name
         )
         self.display_results(results)
+
+    # 필터 선택 해제하여 이후 검색에 영향을 주지 않도록 함
+        self.listbox_filters.selection_clear(0, tk.END)
+
 
     def display_results(self, results):
         self.treeview_results.delete(*self.treeview_results.get_children())
