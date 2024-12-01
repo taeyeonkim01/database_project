@@ -12,7 +12,8 @@ def login(email, password):
             cursor.execute(query, (email, password))
             result = cursor.fetchone()
             if result:
-                return True, result[1]
+                user_info = {'user_id': result[0], 'name': result[1]}
+                return True, user_info
             else:
                 return False, None
     except Exception as e:
