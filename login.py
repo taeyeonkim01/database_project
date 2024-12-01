@@ -30,6 +30,12 @@ def signup(name, email, password):
 
     try:
         with conn.cursor() as cursor:
+            # 이메일 중복 확인
+            cursor.execute("SELECT user_id FROM Users WHERE email = %s", (email,))
+            if cursor.fetchone():
+                messagebox.showwarning("회원가입 오류", "이미 사용 중인 이메일입니다.")
+                return False
+
             query = "INSERT INTO Users (name, email, password) VALUES (%s, %s, %s)"
             cursor.execute(query, (name, email, password))
             conn.commit()

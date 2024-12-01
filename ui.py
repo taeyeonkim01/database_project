@@ -1,6 +1,6 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
-from login import login
+from login import login,signup
 from search import search_products
 from filters import get_user_filters, create_filter, delete_filter
 from database import connect_to_db  # connect_to_db 함수 임포트
@@ -37,6 +37,56 @@ class CosmeticApp:
         self.create_mode_buttons(right_frame)
         self.create_results_table(right_frame)
 
+    def open_signup_window(self):
+        signup_window = tk.Toplevel(self.root)
+        signup_window.title("회원가입")
+        signup_window.geometry("300x300")
+
+        tk.Label(signup_window, text="이름:").pack(pady=5)
+        entry_name = tk.Entry(signup_window, width=25)
+        entry_name.pack(pady=5)
+
+        tk.Label(signup_window, text="이메일:").pack(pady=5)
+        entry_email = tk.Entry(signup_window, width=25)
+        entry_email.pack(pady=5)
+
+        tk.Label(signup_window, text="비밀번호:").pack(pady=5)
+        entry_password = tk.Entry(signup_window, width=25, show='*')
+        entry_password.pack(pady=5)
+
+        tk.Label(signup_window, text="비밀번호 확인:").pack(pady=5)
+        entry_password_confirm = tk.Entry(signup_window, width=25, show='*')
+        entry_password_confirm.pack(pady=5)
+
+        tk.Button(
+            signup_window,
+            text="회원가입",
+            command=lambda: self.handle_signup(
+                entry_name.get(),
+                entry_email.get(),
+                entry_password.get(),
+                entry_password_confirm.get(),
+                signup_window
+            )
+        ).pack(pady=10)    
+    
+    def handle_signup(self, name, email, password, password_confirm, window):
+        if not name or not email or not password or not password_confirm:
+            messagebox.showwarning("입력 오류", "모든 필드를 입력해주세요.")
+            return
+
+        if password != password_confirm:
+            messagebox.showwarning("비밀번호 오류", "비밀번호가 일치하지 않습니다.")
+            return
+
+        success = signup(name, email, password)
+        if success:
+            messagebox.showinfo("회원가입 완료", "회원가입이 성공적으로 완료되었습니다.")
+            window.destroy()
+        else:
+            messagebox.showerror("회원가입 실패", "회원가입에 실패하였습니다.")
+
+
     def create_login_area(self, parent):
         login_frame = tk.LabelFrame(parent, text="로그인", padx=10, pady=10)
         login_frame.pack(fill=tk.X, padx=10, pady=10)
@@ -54,6 +104,10 @@ class CosmeticApp:
 
         self.button_login = tk.Button(login_frame, text="로그인", command=self.handle_login)
         self.button_login.pack(pady=5)
+
+        # 회원가입 버튼 추가
+        self.button_signup = tk.Button(login_frame, text="회원가입", command=self.open_signup_window)
+        self.button_signup.pack(pady=5)
 
     def add_placeholder(self, entry, placeholder, show=None):
         def on_focus_in(event):
@@ -257,10 +311,12 @@ class CosmeticApp:
             self.entry_email.pack_forget()
             self.entry_password.pack_forget()
             self.button_login.pack_forget()
+            self.button_signup.pack_forget()  # 회원가입 버튼 숨기기
             self.toggle_filter_widgets(state='normal')
             self.refresh_filter_list()
         else:
             messagebox.showerror("로그인 실패", "이메일 또는 비밀번호가 잘못되었습니다.")
+
 
     def refresh_filter_list(self):
         self.listbox_filters.delete(0, tk.END)
