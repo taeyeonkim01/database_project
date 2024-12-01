@@ -5,6 +5,7 @@ from tkinter import ttk, messagebox
 from login import login
 from search import search_products
 from filters import get_user_filters, create_filter, delete_filter
+from database import connect_to_db  # connect_to_db 함수 임포트
 
 class CosmeticApp:
     def __init__(self, root):
@@ -184,7 +185,7 @@ class CosmeticApp:
             filter_name=selected_filter
         )
         self.display_results(results)
-    
+
     def handle_filter_double_click(self, event):
         if not self.is_logged_in.get():
             messagebox.showwarning("로그인 필요", "필터를 사용하려면 로그인이 필요합니다.")
@@ -195,7 +196,7 @@ class CosmeticApp:
         index = self.listbox_filters.curselection()[0]
         filter_name = self.listbox_filters.get(index)
 
-    # 검색어 없이 필터만 사용하여 검색 수행
+        # 검색어 없이 필터만 사용하여 검색 수행
         results = search_products(
             search_term=None,
             search_mode="filter_only",
@@ -205,9 +206,8 @@ class CosmeticApp:
         )
         self.display_results(results)
 
-    # 필터 선택 해제하여 이후 검색에 영향을 주지 않도록 함
+        # 필터 선택 해제하여 이후 검색에 영향을 주지 않도록 함
         self.listbox_filters.selection_clear(0, tk.END)
-
 
     def display_results(self, results):
         self.treeview_results.delete(*self.treeview_results.get_children())
@@ -247,23 +247,89 @@ class CosmeticApp:
     def open_create_filter_window(self):
         create_filter_window = tk.Toplevel(self.root)
         create_filter_window.title("필터 생성")
-        create_filter_window.geometry("300x200")
+        create_filter_window.geometry("500x600")
 
         tk.Label(create_filter_window, text="필터 이름:").pack(pady=5)
         entry_filter_name = tk.Entry(create_filter_window, width=30)
         entry_filter_name.pack(pady=5)
 
+        # 스크롤 가능한 캔버스 생성
+        canvas = tk.Canvas(create_filter_window)
+        scrollbar = tk.Scrollbar(create_filter_window, orient="vertical", command=canvas.yview)
+        scrollable_frame = tk.Frame(canvas)
+
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(
+                scrollregion=canvas.bbox("all")
+            )
+        )
+
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # 성분 목록 가져오기
+        ingredients = self.get_all_ingredients()
+
+        # 성분별로 체크박스 생성
+        self.include_vars = {}
+        self.exclude_vars = {}
+
+        for ing_id, ing_name in ingredients:
+            frame = tk.Frame(scrollable_frame)
+            frame.pack(fill="x", padx=5, pady=2)
+
+            label = tk.Label(frame, text=ing_name, width=30, anchor='w')
+            label.pack(side="left")
+
+            include_var = tk.BooleanVar()
+            exclude_var = tk.BooleanVar()
+
+            self.include_vars[ing_id] = include_var
+            self.exclude_vars[ing_id] = exclude_var
+
+            include_cb = tk.Checkbutton(frame, text="포함", variable=include_var,
+                                        command=lambda iv=include_var, ev=exclude_var: self.sync_checkboxes(iv, ev))
+            include_cb.pack(side="left")
+
+            exclude_cb = tk.Checkbutton(frame, text="제외", variable=exclude_var,
+                                        command=lambda iv=include_var, ev=exclude_var: self.sync_checkboxes(ev, iv))
+            exclude_cb.pack(side="left")
+
         tk.Button(
             create_filter_window,
             text="생성",
-            command=lambda: self.handle_create_filter(entry_filter_name.get(), create_filter_window)
+            command=lambda: self.handle_create_filter(
+                entry_filter_name.get(),
+                create_filter_window
+            )
         ).pack(pady=10)
+
+    def sync_checkboxes(self, var1, var2):
+        """
+        하나의 체크박스를 선택하면 다른 하나를 해제하여 포함과 제외가 동시에 선택되지 않도록 합니다.
+        """
+        if var1.get():
+            var2.set(False)
 
     def handle_create_filter(self, filter_name, window):
         if not filter_name:
             messagebox.showwarning("입력 오류", "필터 이름을 입력해주세요.")
             return
-        success = create_filter(self.user_id, filter_name)
+
+        include_ingredients = [ing_id for ing_id, var in self.include_vars.items() if var.get()]
+        exclude_ingredients = [ing_id for ing_id, var in self.exclude_vars.items() if var.get()]
+
+        # 포함 및 제외 성분 중복 확인 (이미 sync_checkboxes로 처리되지만 추가 확인)
+        overlap = set(include_ingredients) & set(exclude_ingredients)
+        if overlap:
+            messagebox.showerror("입력 오류", "같은 성분을 포함과 제외에 동시에 선택할 수 없습니다.")
+            return
+
+        success = create_filter(self.user_id, filter_name, include_ingredients, exclude_ingredients)
         if success:
             messagebox.showinfo("필터 생성", "필터가 성공적으로 생성되었습니다.")
             window.destroy()
@@ -285,3 +351,22 @@ class CosmeticApp:
                 self.refresh_filter_list()
             else:
                 messagebox.showerror("필터 삭제 실패", "필터 삭제에 실패하였습니다.")
+
+    def get_all_ingredients(self):
+        """
+        데이터베이스에서 모든 성분의 ID와 이름을 가져옵니다.
+        """
+        conn = connect_to_db()
+        if conn is None:
+            return []
+
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT ingredient_id, name FROM Ingredients")
+                ingredients = cursor.fetchall()
+                return ingredients
+        except Exception as e:
+            messagebox.showerror("Database Error", f"Error fetching ingredients: {e}")
+            return []
+        finally:
+            conn.close()
