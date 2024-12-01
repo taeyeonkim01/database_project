@@ -24,7 +24,7 @@ def get_user_filters(user_id):
     finally:
         conn.close()
 
-def create_filter(user_id, filter_name):
+def create_filter(user_id, filter_name, include_ingredients, exclude_ingredients):
     """
     새로운 필터를 생성합니다.
     """
@@ -45,6 +45,20 @@ def create_filter(user_id, filter_name):
             # 새로운 필터 생성
             query = "INSERT INTO User_Filters (user_id, filter_name) VALUES (%s, %s)"
             cursor.execute(query, (user_id, filter_name))
+            filter_id = cursor.lastrowid  # 생성된 필터의 ID 가져오기
+
+            # 포함 성분 저장
+            if include_ingredients:
+                include_data = [(filter_id, ing_id, True) for ing_id in include_ingredients]
+                query = "INSERT INTO Filter_Ingredients (filter_id, ingredient_id, include_flag) VALUES (%s, %s, %s)"
+                cursor.executemany(query, include_data)
+
+            # 제외 성분 저장
+            if exclude_ingredients:
+                exclude_data = [(filter_id, ing_id, False) for ing_id in exclude_ingredients]
+                query = "INSERT INTO Filter_Ingredients (filter_id, ingredient_id, include_flag) VALUES (%s, %s, %s)"
+                cursor.executemany(query, exclude_data)
+
             conn.commit()
             return True
     except Exception as e:
